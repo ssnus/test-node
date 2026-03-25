@@ -3,6 +3,7 @@ import axios from 'axios';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { queuedPost } from './utils/requestQueue';
 import './App.css';
 
 const API_URL = 'http://localhost:3001/api';
@@ -30,16 +31,25 @@ function LeftItem({ id, onMove }) {
 
 function SortableItem({ id, onRemove, isDragging }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
-  
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
-  
+
   return (
     <div ref={setNodeRef} style={style} className="right-item" {...attributes} {...listeners}>
       <span>ID: {id.toLocaleString()}</span>
+      <button onClick={(e) => { e.stopPropagation(); onRemove(id); }} className="btn-remove">×</button>
+    </div>
+  );
+}
+
+function PendingItem({ id, onRemove }) {
+  return (
+    <div className="right-item pending">
+      <span>ID: {id.toLocaleString()} ⏳</span>
       <button onClick={(e) => { e.stopPropagation(); onRemove(id); }} className="btn-remove">×</button>
     </div>
   );
@@ -160,6 +170,36 @@ function App() {
   const rightSearchDebounced = useDebounce(rightSearchInput, 500);
 
   const [newId, setNewId] = useState('');
+  const [pendingAddIds, setPendingAddIds] = useState(new Set());
+
+  useEffect(() => {
+    if (pendingAddIds.size === 0) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const { data } = await axios.get(`${API_URL}/items/queue-status`);
+        const queueSet = new Set(data.addQueue);
+
+        let allProcessed = true;
+        for (const id of pendingAddIds) {
+          if (queueSet.has(id)) {
+            allProcessed = false;
+            break;
+          }
+        }
+
+        if (allProcessed) {
+          setPendingAddIds(new Set());
+          await right.reload();
+          await left.reload();
+        }
+      } catch (error) {
+        console.error('Error polling queue status:', error);
+      }
+    }, 500);
+
+    return () => clearInterval(pollInterval);
+  }, [pendingAddIds]);
 
   useEffect(() => {
     if (leftSearchDebounced !== left.searchRef.current) {
@@ -175,9 +215,12 @@ function App() {
 
   const moveToRight = async (id) => {
     try {
-      await axios.post(`${API_URL}/items/move-to-right`, { id });
-      await right.reload();
-      await left.reload();
+      await queuedPost('/items/move-to-right', { id }, `move-to-right:${id}`);
+      setPendingAddIds(prev => new Set([...prev, id]));
+      right.setItems(prev => [id, ...prev]);
+      right.setTotal(prev => prev + 1);
+      left.setItems(prev => prev.filter(item => item !== id));
+      left.setTotal(prev => prev - 1);
     } catch (error) {
       console.error('Error moving to right:', error);
     }
@@ -185,7 +228,7 @@ function App() {
 
   const moveToLeft = async (id) => {
     try {
-      await axios.post(`${API_URL}/items/move-to-left`, { id });
+      await queuedPost('/items/move-to-left', { id }, `move-to-left:${id}`);
       await left.reload();
       await right.reload();
     } catch (error) {
@@ -201,7 +244,7 @@ function App() {
     }
 
     try {
-      await axios.post(`${API_URL}/items/add-new`, { id });
+      await queuedPost('/items/add-new', { id }, `add-new:${id}`);
       setNewId('');
       await left.reload();
     } catch (error) {
@@ -229,6 +272,10 @@ function App() {
     const { active, over } = event;
     setActiveId(null);
 
+    if (pendingAddIds.has(active.id)) {
+      return;
+    }
+
     if (over && active.id !== over.id) {
       const oldIndex = right.items.indexOf(active.id);
       const newIndex = right.items.indexOf(over.id);
@@ -241,7 +288,7 @@ function App() {
 
         const reorderData = newItems.map((id, index) => ({ id, newIndex: index }));
         try {
-          await axios.post(`${API_URL}/items/reorder`, { items: reorderData });
+          await queuedPost('/items/reorder', { items: reorderData }, `reorder:${right.items.join(',')}`);
           await right.reload();
         } catch (error) {
           console.error('Error reordering:', error);
@@ -317,6 +364,10 @@ function App() {
           </div>
           
           <div className="items-container" ref={right.containerRef}>
+            {Array.from(pendingAddIds).map(id => (
+              <PendingItem key={`pending-${id}`} id={id} onRemove={moveToLeft} />
+            ))}
+            
             <SortableContext items={right.items} strategy={verticalListSortingStrategy}>
               {right.items.map(id => (
                 <SortableItem key={`right-${id}`} id={id} onRemove={moveToLeft} isDragging={id === activeId} />

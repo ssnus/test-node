@@ -69,6 +69,14 @@ function scheduleChangeBatch() {
   }, BATCH_CHANGE_DELAY);
 }
 
+function addImmediately(id) {
+  if (leftItemsSet.has(id)) {
+    leftItemsSet.delete(id);
+    rightItems.push({ id, order: Date.now() });
+    console.log(`Immediately added ${id} to right`);
+  }
+}
+
 module.exports = {
   getLeftItems: () => Array.from(leftItemsSet),
   getRightItems: () => rightItems,
@@ -78,6 +86,7 @@ module.exports = {
       scheduleAddBatch();
     }
   },
+  getAddQueue: () => Array.from(addQueue),
   queueRemove: (id) => {
     if (!removeQueue.has(id)) {
       removeQueue.add(id);

@@ -136,4 +136,14 @@ router.post('/items/add-new', (req, res) => {
   }
 });
 
+router.get('/items/queue-status', (req, res) => {
+  try {
+    const addQueue = data.getAddQueue();
+    res.json({ addQueue });
+  } catch (error) {
+    console.error('Error in /items/queue-status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
