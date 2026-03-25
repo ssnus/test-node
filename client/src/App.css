@@ -143,6 +143,17 @@ h2 {
   background: #ff6b6b;
 }
 
+.error-message {
+  padding: 10px 14px;
+  background: rgba(233, 69, 96, 0.2);
+  border: 1px solid #e94560;
+  border-radius: 8px;
+  color: #ff6b6b;
+  font-size: 14px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
 .items-container {
   flex: 1;
   overflow-y: auto;

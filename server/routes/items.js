@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const data = require('../storage/data');
+const { filterBySearch, paginate } = require('../storage/utils');
 
 const PAGE_LIMIT = 20;
 const MAX_ID = 1000000000;
@@ -22,21 +23,13 @@ router.get('/items/left', (req, res) => {
     }
 
     const allItems = data.getLeftItems();
-    let filtered = allItems;
-
-    if (search) {
-      const searchStr = search.toString();
-      filtered = allItems.filter(id => id.toString().includes(searchStr));
-    }
-
-    const startIndex = (page - 1) * PAGE_LIMIT;
-    const endIndex = startIndex + PAGE_LIMIT;
-    const items = filtered.slice(startIndex, endIndex);
+    const filtered = filterBySearch(allItems, search);
+    const result = paginate(filtered, page, PAGE_LIMIT);
 
     res.json({
-      items,
-      total: filtered.length,
-      hasMore: endIndex < filtered.length
+      items: result.items,
+      total: result.total,
+      hasMore: result.hasMore
     });
   } catch (error) {
     console.error('Error in /items/left:', error);
@@ -54,21 +47,14 @@ router.get('/items/right', (req, res) => {
     }
 
     const allItems = data.getRightItems();
-    let filtered = allItems;
-
-    if (search) {
-      const searchStr = search.toString();
-      filtered = allItems.filter(item => item.id.toString().includes(searchStr));
-    }
-
-    const startIndex = (page - 1) * PAGE_LIMIT;
-    const endIndex = startIndex + PAGE_LIMIT;
-    const items = filtered.slice(startIndex, endIndex).map(item => item.id);
+    const filtered = filterBySearch(allItems, search);
+    const paginated = paginate(filtered, page, PAGE_LIMIT);
+    const items = paginated.items.map(item => item.id);
 
     res.json({
       items,
-      total: filtered.length,
-      hasMore: endIndex < filtered.length
+      total: paginated.total,
+      hasMore: paginated.hasMore
     });
   } catch (error) {
     console.error('Error in /items/right:', error);

@@ -51,6 +51,7 @@ function useItemsApi(endpoint) {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [error, setError] = useState(null);
 
   const pageRef = useRef(1);
   const searchRef = useRef('');
@@ -61,6 +62,7 @@ function useItemsApi(endpoint) {
     if (loading) return null;
 
     setLoading(true);
+    setError(null);
     try {
       const { data } = await axios.get(`${API_URL}${endpoint}`, {
         params: { page, limit: PAGE_LIMIT, search: searchValue }
@@ -81,8 +83,10 @@ function useItemsApi(endpoint) {
       pageRef.current = page;
 
       return data;
-    } catch (error) {
-      console.error(`Error loading ${endpoint}:`, error);
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || 'Ошибка загрузки';
+      setError(message);
+      console.error(`Error loading ${endpoint}:`, err);
       return null;
     } finally {
       setLoading(false);
@@ -139,6 +143,7 @@ function useItemsApi(endpoint) {
     applySearch,
     setItems,
     setTotal,
+    error,
   };
 }
 
@@ -171,10 +176,8 @@ function App() {
   const moveToRight = async (id) => {
     try {
       await axios.post(`${API_URL}/items/move-to-right`, { id });
-      left.setItems(prev => prev.filter(item => item !== id));
-      left.setTotal(prev => prev - 1);
-      right.setItems(prev => [id, ...prev]);
-      right.setTotal(prev => prev + 1);
+      await right.reload();
+      await left.reload();
     } catch (error) {
       console.error('Error moving to right:', error);
     }
@@ -183,10 +186,8 @@ function App() {
   const moveToLeft = async (id) => {
     try {
       await axios.post(`${API_URL}/items/move-to-left`, { id });
-      right.setItems(prev => prev.filter(item => item !== id));
-      right.setTotal(prev => prev - 1);
-      left.setItems(prev => [id, ...prev]);
-      left.setTotal(prev => prev + 1);
+      await left.reload();
+      await right.reload();
     } catch (error) {
       console.error('Error moving to left:', error);
     }
@@ -198,12 +199,11 @@ function App() {
       alert('Введите корректный ID');
       return;
     }
-    
+
     try {
       await axios.post(`${API_URL}/items/add-new`, { id });
       setNewId('');
-      left.setItems(prev => [id, ...prev]);
-      left.setTotal(prev => prev + 1);
+      await left.reload();
     } catch (error) {
       alert(error.response?.data?.error || 'Ошибка добавления');
     }
@@ -228,22 +228,24 @@ function App() {
   const handleDragEnd = async (event) => {
     const { active, over } = event;
     setActiveId(null);
-    
+
     if (over && active.id !== over.id) {
       const oldIndex = right.items.indexOf(active.id);
       const newIndex = right.items.indexOf(over.id);
-      
+
       if (oldIndex !== -1 && newIndex !== -1) {
         const newItems = [...right.items];
         newItems.splice(oldIndex, 1);
         newItems.splice(newIndex, 0, active.id);
         right.setItems(newItems);
-        
+
         const reorderData = newItems.map((id, index) => ({ id, newIndex: index }));
         try {
           await axios.post(`${API_URL}/items/reorder`, { items: reorderData });
+          await right.reload();
         } catch (error) {
           console.error('Error reordering:', error);
+          await right.reload();
         }
       }
     }
@@ -254,7 +256,9 @@ function App() {
       <div className="app">
         <div className="container left">
           <h2>Левое окно (не выбрано: {left.total.toLocaleString()})</h2>
-          
+
+          {left.error && <div className="error-message">Ошибка: {left.error}</div>}
+
           <div className="controls">
             <div className="search-row">
               <input
@@ -294,7 +298,9 @@ function App() {
         
         <div className="container right">
           <h2>Правое окно (выбрано: {right.total.toLocaleString()})</h2>
-          
+
+          {right.error && <div className="error-message">Ошибка: {right.error}</div>}
+
           <div className="controls">
             <div className="search-row">
               <input
