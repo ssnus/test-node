@@ -217,8 +217,6 @@ function App() {
     try {
       await queuedPost('/items/move-to-right', { id }, `move-to-right:${id}`);
       setPendingAddIds(prev => new Set([...prev, id]));
-      right.setItems(prev => [id, ...prev]);
-      right.setTotal(prev => prev + 1);
       left.setItems(prev => prev.filter(item => item !== id));
       left.setTotal(prev => prev - 1);
     } catch (error) {
@@ -228,9 +226,24 @@ function App() {
 
   const moveToLeft = async (id) => {
     try {
+      const isPending = pendingAddIds.has(id);
+
+      // Если элемент еще "ожидает" попадания в right, то правый список его не содержит,
+      // поэтому не уменьшаем `right.total` и не трогаем `right.items`.
+      if (isPending) {
+        setPendingAddIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      } else {
+        right.setItems(prev => prev.filter(item => item !== id));
+        right.setTotal(prev => prev - 1);
+      }
+
+      left.setItems(prev => [id, ...prev]);
+      left.setTotal(prev => prev + 1);
       await queuedPost('/items/move-to-left', { id }, `move-to-left:${id}`);
-      await left.reload();
-      await right.reload();
     } catch (error) {
       console.error('Error moving to left:', error);
     }

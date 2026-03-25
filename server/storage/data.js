@@ -10,7 +10,7 @@ for (let i = 1; i <= INITIAL_COUNT; i++) {
 
 const addQueue = new Set();
 const removeQueue = new Set();
-let reorderQueue = null;
+let reorderQueue = null; // Array<{id:number,newIndex:number}>
 
 let addBatchTimer = null;
 let changeBatchTimer = null;
@@ -37,18 +37,49 @@ function processChangeBatch() {
     const idsToRemove = Array.from(removeQueue);
     for (const id of idsToRemove) {
       const index = rightItems.findIndex(item => item.id === id);
+      // Даже если ID еще не успел появиться в rightItems, он должен гарантированно
+      // оказаться в leftItemsSet (иначе возможно "исчезновение" между батчами).
       if (index !== -1) {
         rightItems.splice(index, 1);
-        leftItemsSet.add(id);
       }
+      leftItemsSet.add(id);
     }
     removeQueue.clear();
     console.log(`Batch removed ${idsToRemove.length} items from right`);
   }
 
   if (reorderQueue) {
-    rightItems = reorderQueue.map((id, index) => ({ id, order: index }));
+    const reorderItems = reorderQueue;
     reorderQueue = null;
+
+    // Важно: reorder приходит для текущего отфильтрованного/загруженного подмножества.
+    // Мы не должны "перезаписывать" весь rightItems, иначе элементы вне подмножества
+    // могут пропасть навсегда. Вместо этого переставляем только те позиции,
+    // где эти id уже присутствуют в текущем rightItems.
+    const rightIdsSet = new Set(rightItems.map(item => item.id));
+    const filtered = reorderItems.filter(item => rightIdsSet.has(item.id));
+    filtered.sort((a, b) => a.newIndex - b.newIndex);
+
+    const filteredIdsSet = new Set(filtered.map(item => item.id));
+    const indices = [];
+    for (let i = 0; i < rightItems.length; i++) {
+      if (filteredIdsSet.has(rightItems[i].id)) {
+        indices.push(i);
+      }
+    }
+
+    const len = Math.min(indices.length, filtered.length);
+    for (let k = 0; k < len; k++) {
+      const id = filtered[k].id;
+      const index = indices[k];
+      rightItems[index] = { id, order: index };
+    }
+
+    // Приведем order к индексам массива (на бэкенде фактически важен порядок массива).
+    for (let i = 0; i < rightItems.length; i++) {
+      rightItems[i].order = i;
+    }
+
     console.log('Batch reordered items');
   }
 }
@@ -81,6 +112,8 @@ module.exports = {
   getLeftItems: () => Array.from(leftItemsSet),
   getRightItems: () => rightItems,
   queueAdd: (id) => {
+    // Если параллельно запрошено возвращение в левое окно — отменяем ожидающее удаление.
+    removeQueue.delete(id);
     if (!addQueue.has(id)) {
       addQueue.add(id);
       scheduleAddBatch();
@@ -90,11 +123,13 @@ module.exports = {
   queueRemove: (id) => {
     if (!removeQueue.has(id)) {
       removeQueue.add(id);
+      // Отменяем ожидающее добавление в right, чтобы элемент не "вернулся" позже.
+      addQueue.delete(id);
       scheduleChangeBatch();
     }
   },
   queueReorder: (items) => {
-    reorderQueue = items.map(item => item.id);
+    reorderQueue = items;
     scheduleChangeBatch();
   },
   addNew: (id) => {
