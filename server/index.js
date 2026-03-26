@@ -1,16 +1,12 @@
+const path = require('path');
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost', 'http://localhost:80', 'http://localhost:8081'],
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type']
-}));
-
+app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
 const data = require('./storage/data');
@@ -18,8 +14,11 @@ const itemsRouter = require('./routes/items');
 
 app.use('/api', itemsRouter);
 
-app.get('/', (req, res) => {
-  res.send('Server is running');
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('*', (req, res) => {
+  if (!req.url.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
 });
 
 const server = http.createServer(app);
