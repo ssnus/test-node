@@ -156,12 +156,11 @@ module.exports = {
 
   addNew: (id) => {
     const numId = Number(id);
-    if (numId > 0 && !extraIds.has(numId) && numId > MAX_ID_BOUND) {
-      extraIds.add(numId);
-      if (numId >= nextId) nextId = numId + 1;
-      return true;
-    }
-    return numId > 0 && numId <= MAX_ID_BOUND;
+    if (!Number.isInteger(numId) || numId <= 0) return false;
+    if (numId <= MAX_ID_BOUND || extraIds.has(numId)) return false;
+    extraIds.add(numId);
+    if (numId >= nextId) nextId = numId + 1;
+    return true;
   },
 
   getNextId: () => nextId

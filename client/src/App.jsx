@@ -185,7 +185,10 @@ function App() {
       await queuedPost('/items/add-new', { id }, `add-new:${id}`);
       setNewIdIn('');
       await left.reload();
-    } catch (e) { alert(e.response?.data?.error || 'Ошибка'); }
+      alert(`ID ${id} успешно создан`);
+    } catch (e) {
+      alert(e.response?.data?.error || 'Ошибка');
+    }
   };
 
   const onDragEnd = async (e) => {
