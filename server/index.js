@@ -6,7 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost', 'http://localhost:80'],
+  origin: ['http://localhost:5173', 'http://localhost', 'http://localhost:80', 'http://localhost:8081'],
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type']
 }));

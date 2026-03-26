@@ -8,7 +8,7 @@ services:
     container_name: test-node-server
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "3002:3001"
     networks:
       - app-network
     environment:
@@ -22,7 +22,7 @@ services:
     container_name: test-node-client
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "8081:80"
     depends_on:
       - server
     networks:
