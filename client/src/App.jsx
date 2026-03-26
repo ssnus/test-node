@@ -6,52 +6,50 @@ import { CSS } from '@dnd-kit/utilities';
 import { queuedPost } from './utils/requestQueue';
 import './App.css';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = window.location.origin.includes('localhost') 
+  ? 'http://localhost:3002/api' 
+  : '/api';
 const PAGE_LIMIT = 20;
 
 function useDebounce(value, delay) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
+  const [val, setVal] = useState(value);
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setVal(value), delay);
+    return () => clearTimeout(t);
   }, [value, delay]);
-
-  return debouncedValue;
+  return val;
 }
 
-function LeftItem({ id, onMove }) {
-  return (
-    <div className="left-item">
-      <span>ID: {id.toLocaleString()}</span>
-      <button onClick={() => onMove(id)} className="btn-move">→</button>
-    </div>
-  );
-}
-
-function SortableItem({ id, onRemove, isDragging }) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
-
-  const style = {
+function ItemCard({ id, onAction, actionLabel, className = '', isSortable = false, isDragging = false, dragProps = {} }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = isSortable 
+    ? useSortable({ id }) 
+    : { attributes: {}, listeners: {}, setNodeRef: null, transform: null, transition: null };
+  
+  const style = isSortable ? {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-  };
+  } : {};
 
   return (
-    <div ref={setNodeRef} style={style} className="right-item" {...attributes} {...listeners}>
+    <article 
+      ref={setNodeRef} 
+      style={style} 
+      className={`item-card ${className}`} 
+      {...attributes} 
+      {...listeners} 
+      {...dragProps}
+      aria-label={`Элемент с ID ${id}`}
+    >
       <span>ID: {id.toLocaleString()}</span>
-      <button onClick={(e) => { e.stopPropagation(); onRemove(id); }} className="btn-remove">×</button>
-    </div>
-  );
-}
-
-function PendingItem({ id, onRemove }) {
-  return (
-    <div className="right-item pending">
-      <span>ID: {id.toLocaleString()} ⏳</span>
-      <button onClick={(e) => { e.stopPropagation(); onRemove(id); }} className="btn-remove">×</button>
-    </div>
+      <button 
+        onClick={(e) => { e.stopPropagation(); onAction(id); }} 
+        className="btn-action"
+        aria-label={actionLabel === '→' ? 'Перенести вправо' : 'Удалить из выбранного'}
+      >
+        {actionLabel}
+      </button>
+    </article>
   );
 }
 
@@ -66,37 +64,26 @@ function useItemsApi(endpoint) {
   const pageRef = useRef(1);
   const searchRef = useRef('');
   const containerRef = useRef(null);
-  const initializedRef = useRef(false);
 
   const loadPage = useCallback(async (page, searchValue = '', append = false) => {
     if (loading) return null;
-
     setLoading(true);
     setError(null);
     try {
       const { data } = await axios.get(`${API_URL}${endpoint}`, {
         params: { page, limit: PAGE_LIMIT, search: searchValue }
       });
-
-      if (append) {
-        setItems(prev => {
-          const existingIds = new Set(prev);
-          const newItems = data.items.filter(id => !existingIds.has(id));
-          return [...prev, ...newItems];
-        });
-      } else {
-        setItems(data.items);
-      }
-
+      setItems(prev => {
+        if (!append) return data.items;
+        const ids = new Set(prev);
+        return [...prev, ...data.items.filter(id => !ids.has(id))];
+      });
       setTotal(data.total);
       setHasMore(data.hasMore);
       pageRef.current = page;
-
       return data;
     } catch (err) {
-      const message = err.response?.data?.error || err.message || 'Ошибка загрузки';
-      setError(message);
-      console.error(`Error loading ${endpoint}:`, err);
+      setError(err.response?.data?.error || err.message || 'Ошибка загрузки');
       return null;
     } finally {
       setLoading(false);
@@ -105,299 +92,225 @@ function useItemsApi(endpoint) {
 
   const reload = useCallback(() => {
     pageRef.current = 1;
-    searchRef.current = '';
     setSearch('');
+    searchRef.current = '';
     return loadPage(1, '', false);
   }, [loadPage]);
 
-  const applySearch = useCallback((searchValue) => {
+  const loadMore = useCallback(() => {
+    if (hasMore && !loading) return loadPage(pageRef.current + 1, searchRef.current, true);
+  }, [hasMore, loading, loadPage]);
+
+  const applySearch = useCallback((val) => {
     pageRef.current = 1;
-    searchRef.current = searchValue;
-    setSearch(searchValue);
-    return loadPage(1, searchValue, false);
+    searchRef.current = val;
+    setSearch(val);
+    return loadPage(1, val, false);
   }, [loadPage]);
 
   useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      reload();
-    }
-  }, [reload]);
+    reload();
+  }, []);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      if (scrollHeight - scrollTop - clientHeight < 100 && hasMore && !loading) {
-        const nextPage = pageRef.current + 1;
-        loadPage(nextPage, searchRef.current, true);
-      }
+    const el = containerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 100) loadMore();
     };
+    el.addEventListener('scroll', onScroll);
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [loadMore]);
 
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [hasMore, loading, loadPage]);
-
-  return {
-    items,
-    total,
-    hasMore,
-    loading,
-    search,
-    searchRef,
-    containerRef,
-    loadPage,
-    reload,
-    applySearch,
-    setItems,
-    setTotal,
-    error,
-  };
+  return { items, total, hasMore, loading, search, searchRef, containerRef, reload, loadMore, applySearch, setItems, setTotal, error };
 }
 
 function App() {
   const left = useItemsApi('/items/left');
   const right = useItemsApi('/items/right');
-
   const [activeId, setActiveId] = useState(null);
+  const activeIdRef = useRef(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 10 } }));
-
-  const [leftSearchInput, setLeftSearchInput] = useState('');
-  const [rightSearchInput, setRightSearchInput] = useState('');
-  const leftSearchDebounced = useDebounce(leftSearchInput, 500);
-  const rightSearchDebounced = useDebounce(rightSearchInput, 500);
-
-  const [newId, setNewId] = useState('');
-  const [pendingAddIds, setPendingAddIds] = useState(new Set());
+  const [leftIn, setLeftIn] = useState('');
+  const [rightIn, setRightIn] = useState('');
+  const debouncedLeft = useDebounce(leftIn, 500);
+  const debouncedRight = useDebounce(rightIn, 500);
+  const [newIdIn, setNewIdIn] = useState('');
+  const [pendingAdd, setPendingAdd] = useState(new Set());
 
   useEffect(() => {
-    if (pendingAddIds.size === 0) return;
-
-    const pollInterval = setInterval(async () => {
+    if (pendingAdd.size === 0) return;
+    const t = setInterval(async () => {
+      if (activeIdRef.current) return;
       try {
         const { data } = await axios.get(`${API_URL}/items/queue-status`);
-        const queueSet = new Set(data.addQueue);
-
-        let allProcessed = true;
-        for (const id of pendingAddIds) {
-          if (queueSet.has(id)) {
-            allProcessed = false;
-            break;
-          }
+        const q = new Set(data.addQueue);
+        if ([...pendingAdd].every(id => !q.has(id))) {
+          setPendingAdd(new Set());
+          await Promise.all([right.reload(), left.reload()]);
         }
+      } catch (e) {}
+    }, 1000);
+    return () => clearInterval(t);
+  }, [pendingAdd, left, right]);
 
-        if (allProcessed) {
-          setPendingAddIds(new Set());
-          await right.reload();
-          await left.reload();
-        }
-      } catch (error) {
-        console.error('Error polling queue status:', error);
-      }
-    }, 500);
+  useEffect(() => { if (debouncedLeft !== left.searchRef.current) left.applySearch(debouncedLeft); }, [debouncedLeft]);
+  useEffect(() => { if (debouncedRight !== right.searchRef.current) right.applySearch(debouncedRight); }, [debouncedRight]);
 
-    return () => clearInterval(pollInterval);
-  }, [pendingAddIds]);
-
-  useEffect(() => {
-    if (leftSearchDebounced !== left.searchRef.current) {
-      left.applySearch(leftSearchDebounced);
-    }
-  }, [leftSearchDebounced, left]);
-
-  useEffect(() => {
-    if (rightSearchDebounced !== right.searchRef.current) {
-      right.applySearch(rightSearchDebounced);
-    }
-  }, [rightSearchDebounced, right]);
-
-  const moveToRight = async (id) => {
-    try {
-      await queuedPost('/items/move-to-right', { id }, `move-to-right:${id}`);
-      setPendingAddIds(prev => new Set([...prev, id]));
-      left.setItems(prev => prev.filter(item => item !== id));
-      left.setTotal(prev => prev - 1);
-    } catch (error) {
-      console.error('Error moving to right:', error);
-    }
+  const moveRight = async (id) => {
+    await queuedPost('/items/move-to-right', { id }, `move-to-right:${id}`);
+    setPendingAdd(p => new Set([...p, id]));
+    left.setItems(prev => {
+      const f = prev.filter(x => x !== id);
+      if (f.length < PAGE_LIMIT) setTimeout(() => left.loadMore(), 0);
+      return f;
+    });
+    left.setTotal(t => t - 1);
   };
 
-  const moveToLeft = async (id) => {
-    try {
-      const isPending = pendingAddIds.has(id);
-
-      // Если элемент еще "ожидает" попадания в right, то правый список его не содержит,
-      // поэтому не уменьшаем `right.total` и не трогаем `right.items`.
-      if (isPending) {
-        setPendingAddIds(prev => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-      } else {
-        right.setItems(prev => prev.filter(item => item !== id));
-        right.setTotal(prev => prev - 1);
-      }
-
-      left.setItems(prev => [id, ...prev]);
-      left.setTotal(prev => prev + 1);
-      await queuedPost('/items/move-to-left', { id }, `move-to-left:${id}`);
-    } catch (error) {
-      console.error('Error moving to left:', error);
+  const moveLeft = async (id) => {
+    if (pendingAdd.has(id)) {
+      setPendingAdd(p => { const n = new Set(p); n.delete(id); return n; });
+    } else {
+      right.setItems(p => p.filter(x => x !== id));
+      right.setTotal(t => t - 1);
     }
+    left.setItems(p => [...p, id].sort((a,b) => a-b));
+    left.setTotal(t => t + 1);
+    await queuedPost('/items/move-to-left', { id }, `move-to-left:${id}`);
   };
 
-  const handleAddNew = async () => {
-    const id = parseInt(newId);
-    if (!id || isNaN(id)) {
-      alert('Введите корректный ID');
-      return;
-    }
-
+  const onAdd = async () => {
+    const id = parseInt(newIdIn);
+    if (!id || isNaN(id)) return alert('Введите корректный числовой ID');
     try {
       await queuedPost('/items/add-new', { id }, `add-new:${id}`);
-      setNewId('');
+      setNewIdIn('');
       await left.reload();
-    } catch (error) {
-      alert(error.response?.data?.error || 'Ошибка добавления');
-    }
+    } catch (e) { alert(e.response?.data?.error || 'Ошибка'); }
   };
 
-  const handleLeftSearchKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      left.applySearch(leftSearchInput);
-    }
-  };
-
-  const handleRightSearchKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      right.applySearch(rightSearchInput);
-    }
-  };
-
-  const handleDragStart = (event) => {
-    setActiveId(event.active.id);
-  };
-
-  const handleDragEnd = async (event) => {
-    const { active, over } = event;
-    setActiveId(null);
-
-    if (pendingAddIds.has(active.id)) {
-      return;
-    }
-
-    if (over && active.id !== over.id) {
-      const oldIndex = right.items.indexOf(active.id);
-      const newIndex = right.items.indexOf(over.id);
-
-      if (oldIndex !== -1 && newIndex !== -1) {
-        const newItems = [...right.items];
-        newItems.splice(oldIndex, 1);
-        newItems.splice(newIndex, 0, active.id);
-        right.setItems(newItems);
-
-        const reorderData = newItems.map((id, index) => ({ id, newIndex: index }));
-        try {
-          await queuedPost('/items/reorder', { items: reorderData }, `reorder:${right.items.join(',')}`);
-          await right.reload();
-        } catch (error) {
-          console.error('Error reordering:', error);
-          await right.reload();
-        }
+  const onDragEnd = async (e) => {
+    const { active, over } = e;
+    setActiveId(null); activeIdRef.current = null;
+    if (over && active.id !== over.id && !pendingAdd.has(active.id)) {
+      const oldIdx = right.items.indexOf(active.id);
+      const newIdx = right.items.indexOf(over.id);
+      if (oldIdx !== -1 && newIdx !== -1) {
+        const next = [...right.items];
+        next.splice(oldIdx, 1); next.splice(newIdx, 0, active.id);
+        right.setItems(next);
+        const dto = next.map((v, i) => ({ id: v, newIndex: i }));
+        await queuedPost('/items/reorder', { items: dto }, `reorder:${right.items.join(',')}`);
+        if (!activeIdRef.current) await right.reload();
       }
     }
   };
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="app">
-        <div className="container left">
-          <h2>Левое окно (не выбрано: {left.total.toLocaleString()})</h2>
-
-          {left.error && <div className="error-message">Ошибка: {left.error}</div>}
-
+    <DndContext 
+      sensors={sensors} 
+      onDragStart={(e) => { setActiveId(e.active.id); activeIdRef.current = e.active.id; }} 
+      onDragEnd={onDragEnd}
+    >
+      <main className="app">
+        <section className="container left" aria-labelledby="left-title">
+          <header>
+            <h2 id="left-title">Все элементы ({left.total.toLocaleString()})</h2>
+          </header>
           <div className="controls">
             <div className="search-row">
-              <input
-                type="text"
-                placeholder="Поиск по ID..."
-                value={leftSearchInput}
-                onChange={(e) => setLeftSearchInput(e.target.value)}
-                onKeyDown={handleLeftSearchKeyDown}
+              <input 
+                type="text" 
+                placeholder="Поиск ID..." 
+                value={leftIn} 
+                onChange={e => setLeftIn(e.target.value)} 
+                onKeyDown={e => e.key === 'Enter' && left.applySearch(leftIn)} 
                 className="search-input"
+                aria-label="Поиск в левой колонке"
               />
-              <button onClick={() => left.applySearch(leftSearchInput)} className="btn-search">🔍</button>
-              {left.loading && <span className="loading-indicator">⏳</span>}
+              <button 
+                onClick={() => left.applySearch(leftIn)} 
+                className="btn-search" 
+                aria-label="Найти"
+              >
+                🔍
+              </button>
+              {left.loading && <span className="loading-indicator" aria-hidden="true">⏳</span>}
             </div>
-            
             <div className="add-new">
-              <input
-                type="number"
-                placeholder="Новый ID"
-                value={newId}
-                onChange={(e) => setNewId(e.target.value)}
+              <input 
+                type="number" 
+                placeholder="Новый ID" 
+                value={newIdIn} 
+                onChange={e => setNewIdIn(e.target.value)} 
                 className="new-id-input"
+                aria-label="ID нового элемента"
               />
-              <button onClick={handleAddNew} className="btn-add">Добавить</button>
+              <button onClick={onAdd} className="btn-add">Создать</button>
             </div>
           </div>
-          
-          <div className="items-container" ref={left.containerRef}>
+          <div className="items-container" ref={left.containerRef} role="list">
             {left.items.map(id => (
-              <LeftItem key={`left-${id}`} id={id} onMove={moveToRight} />
+              <ItemCard key={`l-${id}`} id={id} onAction={moveRight} actionLabel="→" className="left-item-card" />
             ))}
-            {left.loading && <div className="loading">Загрузка...</div>}
-            {!left.hasMore && left.items.length > 0 && (
-              <div className="end-message">Конец списка</div>
-            )}
+            {left.loading && <div className="loading" role="status">Загрузка...</div>}
           </div>
-        </div>
-        
-        <div className="container right">
-          <h2>Правое окно (выбрано: {right.total.toLocaleString()})</h2>
+        </section>
 
-          {right.error && <div className="error-message">Ошибка: {right.error}</div>}
-
+        <section className="container right" aria-labelledby="right-title">
+          <header>
+            <h2 id="right-title">Выбранные ({right.total.toLocaleString()})</h2>
+          </header>
           <div className="controls">
             <div className="search-row">
-              <input
-                type="text"
-                placeholder="Поиск по ID..."
-                value={rightSearchInput}
-                onChange={(e) => setRightSearchInput(e.target.value)}
-                onKeyDown={handleRightSearchKeyDown}
+              <input 
+                type="text" 
+                placeholder="Поиск ID..." 
+                value={rightIn} 
+                onChange={e => setRightIn(e.target.value)} 
+                onKeyDown={e => e.key === 'Enter' && right.applySearch(rightIn)} 
                 className="search-input"
+                aria-label="Поиск в правой колонке"
               />
-              <button onClick={() => right.applySearch(rightSearchInput)} className="btn-search">🔍</button>
-              {right.loading && <span className="loading-indicator">⏳</span>}
+              <button 
+                onClick={() => right.applySearch(rightIn)} 
+                className="btn-search"
+                aria-label="Найти"
+              >
+                🔍
+              </button>
+              {right.loading && <span className="loading-indicator" aria-hidden="true">⏳</span>}
             </div>
           </div>
-          
-          <div className="items-container" ref={right.containerRef}>
-            {Array.from(pendingAddIds).map(id => (
-              <PendingItem key={`pending-${id}`} id={id} onRemove={moveToLeft} />
+          <div className="items-container" ref={right.containerRef} role="list">
+            {[...pendingAdd].map(id => (
+              <ItemCard key={`p-${id}`} id={id} onAction={moveLeft} actionLabel="⏳" className="right-item-card pending" />
             ))}
-            
             <SortableContext items={right.items} strategy={verticalListSortingStrategy}>
               {right.items.map(id => (
-                <SortableItem key={`right-${id}`} id={id} onRemove={moveToLeft} isDragging={id === activeId} />
+                <ItemCard 
+                  key={`r-${id}`} 
+                  id={id} 
+                  onAction={moveLeft} 
+                  actionLabel="×" 
+                  className="right-item-card" 
+                  isSortable={true} 
+                  isDragging={id === activeId} 
+                />
               ))}
             </SortableContext>
-            {right.loading && <div className="loading">Загрузка...</div>}
-            {!right.hasMore && right.items.length > 0 && (
-              <div className="end-message">Конец списка</div>
-            )}
+            {right.loading && <div className="loading" role="status">Загрузка...</div>}
           </div>
-        </div>
-      </div>
+        </section>
+      </main>
       
       <DragOverlay>
-        {activeId ? (
-          <div className="right-item dragging">ID: {activeId.toLocaleString()}</div>
-        ) : null}
+        {activeId && (
+          <div className="item-card dragging" aria-hidden="true">
+            <span>ID: {activeId.toLocaleString()}</span>
+          </div>
+        )}
       </DragOverlay>
     </DndContext>
   );
