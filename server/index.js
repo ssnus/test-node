@@ -15,7 +15,7 @@ const itemsRouter = require('./routes/items');
 app.use('/api', itemsRouter);
 
 app.use(express.static(path.join(__dirname, 'public')));
-app.get('*', (req, res) => {
+app.get(/.*/, (req, res) => {
   if (!req.url.startsWith('/api')) {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
   }
@@ -23,8 +23,8 @@ app.get('*', (req, res) => {
 
 const server = http.createServer(app);
 
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
 
 process.on('uncaughtException', (error) => {
