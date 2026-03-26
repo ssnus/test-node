@@ -5,10 +5,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { queuedPost } from './utils/requestQueue';
 import './App.css';
+import { API_URL } from './config'; 
 
-const API_URL = window.location.origin.includes('localhost') 
-  ? 'http://localhost:3002/api' 
-  : '/api';
 const PAGE_LIMIT = 20;
 
 function useDebounce(value, delay) {
